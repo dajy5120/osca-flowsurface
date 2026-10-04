@@ -1,4 +1,4 @@
-use super::{Chart, Interaction, Message, PlotConstants, ViewState, scale::linear::PriceInfoLabel};
+use super::{Chart, Interaction, Message, PlotConstants, ViewState, ticks::y::PriceInfoLabel};
 use crate::{
     modal::pane::settings::study::{self, Study},
     style,
@@ -182,7 +182,6 @@ impl HeatmapChart {
         let view_state = ViewState::new(
             basis,
             step,
-            step.decimal_places(),
             ticker_info,
             ViewConfig {
                 splits: layout.splits.clone(),
@@ -255,6 +254,7 @@ impl HeatmapChart {
         let chart = &mut self.chart;
         let mid_price = depth.mid_price().unwrap_or(chart.base_price_y);
         chart.base_price_y = mid_price.round_to_step(chart.tick_size);
+        chart.max_price = chart.max_price.max(chart.base_price_y);
         chart.latest_x = chart.latest_x.max(rounded_update.as_u64());
     }
 
@@ -296,6 +296,8 @@ impl HeatmapChart {
 
     pub fn set_basis(&mut self, basis: Basis) {
         self.chart.basis = basis;
+        self.chart.last_price = None;
+        self.chart.max_price = Price::from_f32(0.0);
 
         self.trades.datapoints.clear();
         self.heatmap =
@@ -357,7 +359,6 @@ impl HeatmapChart {
 
         chart_state.cell_height = 4.0;
         chart_state.tick_size = step;
-        chart_state.decimals = step.decimal_places();
 
         self.trades.datapoints.clear();
         self.heatmap = HistoricalDepth::new(self.chart.ticker_info.min_qty, step, basis);
@@ -541,7 +542,7 @@ impl canvas::Program<Message> for HeatmapChart {
                                     *price,
                                     size_in_quote_ccy,
                                 );
-                                order_size as f32 > self.visual_config.order_size_filter
+                                order_size > f64::from(self.visual_config.order_size_filter)
                             })
                             .for_each(|run| {
                                 let start_x = chart.interval_to_x(
@@ -638,7 +639,7 @@ impl canvas::Program<Message> for HeatmapChart {
                             size_in_quote_ccy,
                         );
 
-                        if trade_size as f32 > self.visual_config.trade_size_filter {
+                        if trade_size > f64::from(self.visual_config.trade_size_filter) {
                             let color = if trade.is_sell {
                                 palette.danger.base.color
                             } else {
@@ -648,10 +649,12 @@ impl canvas::Program<Message> for HeatmapChart {
                             let radius = {
                                 if let Some(trade_size_scale) = self.visual_config.trade_size_scale
                                 {
-                                    let scale_factor = (trade_size_scale as f32) / 100.0;
-                                    1.0 + (trade_qty / max_trade_qty) as f32
-                                        * (MAX_CIRCLE_RADIUS - 1.0)
-                                        * scale_factor
+                                    let scale_factor = (trade_size_scale as f64) / 100.0;
+                                    (1.0_f64
+                                        + (trade_qty / max_trade_qty)
+                                            * f64::from(MAX_CIRCLE_RADIUS - 1.0)
+                                            * scale_factor)
+                                        as f32
                                 } else {
                                     cell_height / 2.0
                                 }
@@ -797,7 +800,7 @@ impl canvas::Program<Message> for HeatmapChart {
                     };
                     let step = chart.tick_size;
 
-                    let base_data_price = Price::from_f32(cursor_at_price).round_to_step(step);
+                    let base_data_price = cursor_at_price.round_to_step(step);
                     let base_data_time = UnixMs::new(cursor_at_time).floor_to(interval);
 
                     let price_tick_offsets = [1i64, 0, -1];

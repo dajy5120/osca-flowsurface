@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 pub struct TickCount(pub u16);
 
 impl TickCount {
-    pub const ALL: [TickCount; 7] = [
+    pub const ALL: [TickCount; 10] = [
         TickCount(10),
         TickCount(20),
         TickCount(50),
@@ -24,6 +24,9 @@ impl TickCount {
         TickCount(200),
         TickCount(500),
         TickCount(1000),
+        TickCount(2000),
+        TickCount(5000),
+        TickCount(10000),
     ];
 
     pub fn is_custom(&self) -> bool {

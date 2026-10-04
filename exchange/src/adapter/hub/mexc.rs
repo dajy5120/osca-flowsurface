@@ -1,6 +1,6 @@
 use crate::{
     Event, Kline, PushFrequency, Ticker, TickerInfo, Timeframe, UnixMs,
-    adapter::{Exchange, MarketKind, limiter::FixedWindowRateLimiterConfig},
+    adapter::{Exchange, MarketKind, StreamTicksize, limiter::FixedWindowRateLimiterConfig},
     depth::DepthPayload,
     unit::{ContractSize, qty::RawQtyUnit},
 };
@@ -14,7 +14,6 @@ pub mod stream;
 const FETCH_DOMAIN: &str = "https://api.mexc.com/api";
 const MEXC_FUTURES_WS_DOMAIN: &str = "contract.mexc.com";
 const MEXC_FUTURES_WS_PATH: &str = "/edge";
-const PING_INTERVAL: u64 = 15;
 const LIMIT: usize = 10;
 const REFILL_RATE: Duration = Duration::from_secs(2);
 const LIMITER_BUFFER_PCT: f32 = 0.0;
@@ -165,8 +164,11 @@ pub struct MexcHandle {
 }
 
 impl MexcHandle {
-    pub fn new(proxy: Option<&crate::proxy::Proxy>) -> Result<Self, AdapterError> {
-        let worker = Worker::new_with_network(proxy)?;
+    pub fn new(
+        client: reqwest::Client,
+        proxy: Option<&crate::proxy::Proxy>,
+    ) -> Result<Self, AdapterError> {
+        let worker = Worker::new(client)?;
         let request_port = super::spawn_fetch_worker(worker);
 
         Ok(Self {
@@ -224,10 +226,11 @@ impl MexcHandle {
     pub fn connect_depth_stream(
         self,
         ticker_info: TickerInfo,
+        depth_aggr: StreamTicksize,
         push_freq: PushFrequency,
     ) -> impl futures::Stream<Item = Event> {
         let proxy_cfg = self.proxy_cfg.clone();
-        stream::connect_depth_stream(self, ticker_info, push_freq, proxy_cfg)
+        stream::connect_depth_stream(self, ticker_info, depth_aggr, push_freq, proxy_cfg)
     }
 
     pub fn connect_trade_stream(
@@ -252,11 +255,11 @@ struct Worker {
 }
 
 impl Worker {
-    fn new_with_network(proxy: Option<&crate::proxy::Proxy>) -> Result<Self, AdapterError> {
+    fn new(client: reqwest::Client) -> Result<Self, AdapterError> {
         let config = MexcConfig::default();
 
         let limiter = MexcLimiter::new(config.limiter_config());
-        let hub = HttpHub::new(limiter, proxy)?;
+        let hub = HttpHub::with_client(client, limiter);
 
         Ok(Self { hub })
     }
