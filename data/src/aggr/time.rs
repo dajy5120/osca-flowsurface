@@ -176,6 +176,8 @@ impl<D: DataPoint> TimeSeries<D> {
     // 【zh】 按 `interval` 步进检查 `[earliest, latest)` 内是否有缺失的 K 线。
     // 【zh】 先做一次快速扫描，遇到第一个缺口才再完整扫描并收集所有缺失时间，
     // 【zh】 这样数据完整的常见情况开销很小。有缺失返回 `Some`，否则 `None`。
+    // 【zh】 两轮扫描都有 `MAX_INTEGRITY_SCAN`（100 万步）的上限，防止范围过大或
+    // 【zh】 周期过小时长时间循环；超过上限的部分不会被检查，也不会预分配容量。
     fn check_kline_integrity_range(
         &self,
         earliest: UnixMs,
@@ -449,9 +451,13 @@ impl TimeSeries<KlineDataPoint> {
     }
 
     // 【zh】 根据 footprint 成交数据的空洞，建议需要补取成交的时间范围 `(from, to)`。
-    // 【zh】 先用 `find_trade_gap` 找到空洞两侧最近的成交时间，取其间的开区间，
-    // 【zh】 再与可见区间 `[visible_earliest, visible_latest]` 求交，只补取用户看得到的部分。
-    // 【zh】 序列为空、没有空洞或交集为空时返回 `None`。
+    // 【zh】 先用 `find_trade_gap` 找到空洞两侧最近的成交时间，取其间的开区间。
+    // 【zh】 起点：与可见区间起点取较大值，并向下对齐到 K 线边界以完整覆盖首个桶，
+    // 【zh】 但不会早于空洞起点。
+    // 【zh】 终点：若空洞之后有成交，则一次补到该成交之前，不再被可见区间截断，
+    // 【zh】 避免快速滚动后留下尾部空洞；否则以数据末端与 `visible_latest` 的较小值为界，避免无界请求。
+    // 【zh】 若空洞起点早于可见区间，且范围不足一个完整周期，则视为碎片并返回 `None`。
+    // 【zh】 序列为空、没有空洞或范围为空时同样返回 `None`。
     pub fn suggest_trade_fetch_range(
         &self,
         visible_earliest: UnixMs,
