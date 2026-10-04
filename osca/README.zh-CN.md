@@ -5,6 +5,8 @@
 > 上游代码保持原样（许可证：GPL-3.0，见根目录 LICENSE），仅增加以 `【zh】` 开头的中文注释；
 > 所有版权归上游作者所有。
 
+在线阅读：https://dajy5120.github.io/osca-flowsurface/
+
 ## 分支
 
 | 分支 | 内容 |
