@@ -1,3 +1,6 @@
+//! 【zh】 按时间周期（Timeframe）聚合数据的时间序列模块。
+//! 【zh】 用 `BTreeMap<UnixMs, D>` 以桶起始时间为键保存数据点，天然有序，便于范围查询。
+//! 【zh】 提供 K 线图（Kline）与热力图（Heatmap）两种数据点的序列实现。
 use std::collections::BTreeMap;
 
 use crate::chart::Basis;
@@ -7,6 +10,9 @@ use crate::chart::kline::{ClusterKind, KlineDataPoint, KlineTrades, NPoc};
 use exchange::unit::{Price, PriceStep, Qty};
 use exchange::{Kline, Timeframe, Trade, UnixMs, Volume};
 
+// 【zh】 时间序列中数据点的 trait（行为接口）。
+// 【zh】 约定了成交写入、清空、首末成交时间、最新价、对应 K 线以及价格上下界等能力，
+// 【zh】 使 `TimeSeries` 能对不同图表的数据点复用同一套通用逻辑。
 pub trait DataPoint {
     fn add_trade(&mut self, trade: &Trade, step: PriceStep);
 
@@ -25,6 +31,8 @@ pub trait DataPoint {
     fn value_low(&self) -> Price;
 }
 
+// 【zh】 按固定时间周期分桶的时间序列。
+// 【zh】 `datapoints` 的键是桶的起始时间戳；`interval` 为桶宽；`tick_size` 为价格聚合步长。
 pub struct TimeSeries<D: DataPoint> {
     pub datapoints: BTreeMap<UnixMs, D>,
     pub interval: Timeframe,
@@ -32,6 +40,7 @@ pub struct TimeSeries<D: DataPoint> {
 }
 
 impl<D: DataPoint> TimeSeries<D> {
+    // 【zh】 以最新数据点的最新价作为基准价；序列为空时返回 0。
     pub fn base_price(&self) -> Price {
         self.datapoints
             .values()
@@ -47,6 +56,8 @@ impl<D: DataPoint> TimeSeries<D> {
         self.datapoints.values().last().and_then(|dp| dp.kline())
     }
 
+    // 【zh】 取最近 `lookback` 个数据点，返回其价格范围 `(high, low)`。
+    // 【zh】 注意返回顺序是（最高，最低）；没有数据时返回 `(0, 0)`。
     pub fn price_scale(&self, lookback: usize) -> (Price, Price) {
         let mut iter = self.datapoints.iter().rev().take(lookback);
 
@@ -78,6 +89,7 @@ impl<D: DataPoint> TimeSeries<D> {
         self.into()
     }
 
+    // 【zh】 返回序列中最早与最晚的桶时间；序列为空时两者都为 `UnixMs::ZERO`。
     pub fn timerange(&self) -> (UnixMs, UnixMs) {
         let earliest = self
             .datapoints
@@ -95,6 +107,8 @@ impl<D: DataPoint> TimeSeries<D> {
         (earliest, latest)
     }
 
+    // 【zh】 在闭区间 `[earliest, latest]` 内求数据点的最低价与最高价，返回 `(min, max)`。
+    // 【zh】 区间内没有数据点时返回 `None`。
     pub fn min_max_price_in_range_prices(
         &self,
         earliest: UnixMs,
@@ -126,6 +140,8 @@ impl<D: DataPoint> TimeSeries<D> {
     }
 
     /// Ensures a datapoint bucket exists at `rounded_t` and ingests all trades into it.
+    /// 【zh】 确保 `rounded_t` 对应的桶存在（不存在则用 `Default` 创建），并把所有成交写入该桶。
+    /// 【zh】 调用方需自行保证这些成交确实属于该桶的时间范围。
     pub fn ingest_trades_bucket(&mut self, rounded_t: UnixMs, trades: &[Trade], step: PriceStep)
     where
         D: Default,
@@ -137,12 +153,16 @@ impl<D: DataPoint> TimeSeries<D> {
         }
     }
 
+    // 【zh】 清空所有数据点中的成交明细，但保留桶本身（及 K 线数据）。
     pub fn clear_trades(&mut self) {
         for data_point in self.datapoints.values_mut() {
             data_point.clear_trades();
         }
     }
 
+    // 【zh】 把时间向下对齐到“以 `phase` 为相位、`interval` 为步长”的网格。
+    // 【zh】 `time` 小于 `phase` 时直接返回 `phase`。
+    // 【zh】 相位用于兼容并非从整点对齐的已有数据。
     fn align_down_to_phase(time: UnixMs, phase: UnixMs, interval: u64) -> UnixMs {
         if time >= phase {
             let t = time.as_u64();
@@ -153,6 +173,9 @@ impl<D: DataPoint> TimeSeries<D> {
         }
     }
 
+    // 【zh】 按 `interval` 步进检查 `[earliest, latest)` 内是否有缺失的 K 线。
+    // 【zh】 先做一次快速扫描，遇到第一个缺口才再完整扫描并收集所有缺失时间，
+    // 【zh】 这样数据完整的常见情况开销很小。有缺失返回 `Some`，否则 `None`。
     fn check_kline_integrity_range(
         &self,
         earliest: UnixMs,
@@ -192,6 +215,10 @@ impl<D: DataPoint> TimeSeries<D> {
         None
     }
 
+    // 【zh】 检查给定时间范围内 K 线是否连续，返回缺失的时间点。
+    // 【zh】 以序列最早时间对 `interval` 取余作为相位，并把检查范围夹在已有数据范围内，
+    // 【zh】 因此只检查已有数据之间的空洞，不会把两端之外的区间视为缺失。
+    // 【zh】 序列为空或周期为 0 时返回 `None`。
     pub fn check_kline_integrity(&self, earliest: UnixMs, latest: UnixMs) -> Option<Vec<UnixMs>> {
         if self.datapoints.is_empty() {
             return None;
@@ -220,6 +247,7 @@ impl<D: DataPoint> TimeSeries<D> {
 }
 
 impl TimeSeries<KlineDataPoint> {
+    // 【zh】 用历史 K 线创建序列，并在插入后计算 POC（最大成交量价位）状态。
     pub fn new(interval: Timeframe, tick_size: PriceStep, klines: &[Kline]) -> Self {
         let mut timeseries = Self {
             datapoints: BTreeMap::new(),
@@ -231,6 +259,8 @@ impl TimeSeries<KlineDataPoint> {
         timeseries
     }
 
+    // 【zh】 克隆（Clone）当前序列，并在副本中写入成交，返回新序列；原序列不变。
+    // 【zh】 缺失的桶会被创建。
     pub fn with_trades(&self, trades: &[Trade]) -> TimeSeries<KlineDataPoint> {
         let mut new_series = Self {
             datapoints: self.datapoints.clone(),
@@ -242,6 +272,8 @@ impl TimeSeries<KlineDataPoint> {
         new_series
     }
 
+    // 【zh】 插入或覆盖 K 线。已有桶只替换 `kline`，保留其 footprint 成交明细。
+    // 【zh】 最后重新计算所有 POC 的填补状态。
     pub fn insert_klines(&mut self, klines: &[Kline]) {
         for kline in klines {
             let entry = self
@@ -258,6 +290,8 @@ impl TimeSeries<KlineDataPoint> {
         self.update_poc_status();
     }
 
+    // 【zh】 把成交写入对应时间桶；桶不存在时以首笔成交价创建一根 OHLC 全相同的 K 线。
+    // 【zh】 记录被更新的桶，结束后统一重算它们的 POC，避免每笔成交都重算。
     pub fn insert_trades_or_create_bucket(&mut self, buffer: &[Trade]) {
         if buffer.is_empty() {
             return;
@@ -296,6 +330,8 @@ impl TimeSeries<KlineDataPoint> {
         }
     }
 
+    // 【zh】 只把成交写入已存在的桶，落在没有桶的时间上的成交会被忽略。
+    // 【zh】 写入后统一重算受影响桶的 POC。
     pub fn insert_trades_existing_buckets(&mut self, buffer: &[Trade]) {
         if buffer.is_empty() {
             return;
@@ -320,6 +356,8 @@ impl TimeSeries<KlineDataPoint> {
         }
     }
 
+    // 【zh】 更改价格步长：先清空所有 footprint，再用原始成交按新步长重新聚合。
+    // 【zh】 只填充已有的桶，不会创建新桶。
     pub fn change_tick_size(&mut self, tick_size: PriceStep, raw_trades: &[Trade]) {
         self.tick_size = tick_size;
 
@@ -330,6 +368,10 @@ impl TimeSeries<KlineDataPoint> {
         }
     }
 
+    // 【zh】 更新各 K 线 POC 的 naked POC（NPoc）状态。
+    // 【zh】 对每个有 POC 的桶，向后查找第一根价格范围触及该 POC 的 K 线：
+    // 【zh】 找到则标记为已填补（filled）并记录时间，否则为未填补。
+    // 【zh】 先收集再修改，以避开对 `datapoints` 的借用冲突。
     pub fn update_poc_status(&mut self) {
         let updates = self
             .datapoints
@@ -358,6 +400,8 @@ impl TimeSeries<KlineDataPoint> {
         }
     }
 
+    // 【zh】 求闭区间内的最低与最高价，同时计入 K 线高低价与 footprint 中的所有成交价位。
+    // 【zh】 `latest < earliest` 或区间内无数据时返回 `None`。
     pub fn min_max_footprint_price_in_range(
         &self,
         earliest: UnixMs,
@@ -398,6 +442,10 @@ impl TimeSeries<KlineDataPoint> {
         }
     }
 
+    // 【zh】 根据 footprint 成交数据的空洞，建议需要补取成交的时间范围 `(from, to)`。
+    // 【zh】 先用 `find_trade_gap` 找到空洞两侧最近的成交时间，取其间的开区间，
+    // 【zh】 再与可见区间 `[visible_earliest, visible_latest]` 求交，只补取用户看得到的部分。
+    // 【zh】 序列为空、没有空洞或交集为空时返回 `None`。
     pub fn suggest_trade_fetch_range(
         &self,
         visible_earliest: UnixMs,
@@ -429,6 +477,10 @@ impl TimeSeries<KlineDataPoint> {
             })
     }
 
+    // 【zh】 查找最新的“没有成交明细”的 K 线桶，返回该空洞前后最近的成交时间：
+    // 【zh】 `(空洞之前最后一笔成交时间, 空洞之后第一笔成交时间)`，任一侧可能为 `None`。
+    // 【zh】 只处理从后往前找到的第一个空桶，因此一次只定位一处空洞。
+    // 【zh】 所有桶都有成交时返回 `None`。
     fn find_trade_gap(&self) -> Option<(Option<UnixMs>, Option<UnixMs>)> {
         let empty_kline_time = self
             .datapoints
@@ -455,6 +507,9 @@ impl TimeSeries<KlineDataPoint> {
         }
     }
 
+    // 【zh】 在时间闭区间 `[earliest, latest]` 内，按 `cluster_kind` 的统计方式，
+    // 【zh】 求价格范围 `[lowest, highest]` 内各数据点的最大聚簇数量（Qty）。
+    // 【zh】 常用于 footprint 图确定绘制时的数量缩放上限；区间无数据时返回默认值（零）。
     pub fn max_qty_ts_range(
         &self,
         cluster_kind: ClusterKind,
@@ -477,6 +532,8 @@ impl TimeSeries<KlineDataPoint> {
 }
 
 impl TimeSeries<HeatmapDataPoint> {
+    // 【zh】 创建空的热力图（Heatmap）时间序列。
+    // 【zh】 只支持按时间（`Basis::Time`）分桶；传入 `Basis::Tick` 会触发 `unimplemented!` panic。
     pub fn new(basis: Basis, tick_size: PriceStep) -> Self {
         let timeframe = match basis {
             Basis::Time(interval) => interval,
@@ -490,6 +547,8 @@ impl TimeSeries<HeatmapDataPoint> {
         }
     }
 
+    // 【zh】 在时间闭区间内统计两个最大值，返回 `(单笔成交最大数量, 单桶买卖合计最大成交量)`。
+    // 【zh】 后者把每个桶内的买入与卖出数量相加后再取最大，用于热力图成交量柱与气泡的缩放。
     pub fn max_trade_qty_and_aggr_volume(&self, earliest: UnixMs, latest: UnixMs) -> (Qty, Qty) {
         let mut max_trade_qty = Qty::ZERO;
         let mut max_aggr_volume = Qty::ZERO;
@@ -516,6 +575,8 @@ impl TimeSeries<HeatmapDataPoint> {
         (max_trade_qty, max_aggr_volume)
     }
 
+    // 【zh】 在时间闭区间内，只统计价格位于 `[lowest, highest]` 的分组成交，
+    // 【zh】 返回其中单笔数量的最大值；没有符合条件的成交时为默认值（零）。
     pub fn max_trade_qty_in_range(
         &self,
         earliest: UnixMs,
@@ -541,6 +602,8 @@ impl TimeSeries<HeatmapDataPoint> {
 
 impl From<&TimeSeries<KlineDataPoint>> for BTreeMap<UnixMs, exchange::Volume> {
     /// Converts datapoints into a map of timestamps and volume data
+    /// 【zh】 把 K 线序列转换为“桶时间 → 成交量”的映射，成交量取自各数据点的 `kline.volume`。
+    /// 【zh】 `TimeSeries::volume_data` 通过该转换实现。
     fn from(timeseries: &TimeSeries<KlineDataPoint>) -> Self {
         timeseries
             .datapoints

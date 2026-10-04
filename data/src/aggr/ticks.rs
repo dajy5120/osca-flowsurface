@@ -1,3 +1,5 @@
+//! 【zh】 按成交笔数（tick）聚合 K 线与足迹图（footprint）的模块。
+//! 【zh】 与按时间聚合不同，每根 K 线固定包含 N 笔成交，N 由 `TickCount` 决定。
 use crate::aggr;
 use crate::chart::kline::{ClusterKind, KlineTrades, NPoc};
 use exchange::unit::Qty;
@@ -6,6 +8,8 @@ use exchange::{Kline, Trade, Volume};
 
 use std::collections::BTreeMap;
 
+// 【zh】 单根 tick K 线的累积状态：已收成交笔数、OHLC 与成交量，
+// 【zh】 以及按价格档位分组的足迹数据（`KlineTrades`）。
 #[derive(Debug, Clone)]
 pub struct TickAccumulation {
     pub tick_count: usize,
@@ -14,6 +18,8 @@ pub struct TickAccumulation {
 }
 
 impl TickAccumulation {
+    // 【zh】 用第一笔成交创建新的累积：开高低收都等于该成交价，
+    // 【zh】 成交量按买卖方向初始化，并把成交归入最近的价格档位。
     pub fn new(trade: &Trade, step: PriceStep) -> Self {
         let mut footprint = KlineTrades::new();
         footprint.add_trade_to_nearest_bin(trade, step);
@@ -34,6 +40,8 @@ impl TickAccumulation {
         }
     }
 
+    // 【zh】 并入后续成交：计数加一，更新最高/最低/收盘价与买卖量，
+    // 【zh】 同时写入足迹。注意不在此重算 POC，由调用方批量处理。
     pub fn update_with_trade(&mut self, trade: &Trade, step: PriceStep) {
         self.tick_count += 1;
         self.kline.high = self.kline.high.max(trade.price);
@@ -70,6 +78,8 @@ impl TickAccumulation {
         self.footprint.calculate_poc();
     }
 
+    // 【zh】 返回买卖量差（delta）。优先用 K 线成交量；
+    // 【zh】 若其不带方向，则退回到足迹各档位 delta 之和；都没有则为 0。
     pub fn volume_delta(&self) -> Qty {
         if self.kline.volume.is_directional() {
             self.kline.volume.delta()
@@ -84,11 +94,14 @@ impl TickAccumulation {
     }
 
     /// Whether this tick accumulation has directional (buy vs sell) data.
+    /// 【zh】 是否具备买卖方向数据：足迹非空，或 K 线成交量本身带方向。
     pub fn is_directional(&self) -> bool {
         !self.footprint.trades.is_empty() || self.kline.volume.is_directional()
     }
 }
 
+// 【zh】 tick 聚合器：按时间顺序保存所有 `TickAccumulation`，
+// 【zh】 `interval` 为每根 K 线的成交笔数，`tick_size` 为足迹价格档位步长。
 pub struct TickAggr {
     pub datapoints: Vec<TickAccumulation>,
     pub interval: aggr::TickCount,
@@ -96,6 +109,7 @@ pub struct TickAggr {
 }
 
 impl TickAggr {
+    // 【zh】 创建聚合器；若有原始成交则立即按顺序聚合。
     pub fn new(interval: aggr::TickCount, tick_size: PriceStep, raw_trades: &[Trade]) -> Self {
         let mut tick_aggr = Self {
             datapoints: Vec::new(),
@@ -110,6 +124,8 @@ impl TickAggr {
         tick_aggr
     }
 
+    // 【zh】 更改价格步长。分档结果依赖步长，无法增量调整，
+    // 【zh】 所以清空已有数据并用原始成交整体重建。
     pub fn change_tick_size(&mut self, tick_size: PriceStep, raw_trades: &[Trade]) {
         self.tick_size = tick_size;
 
@@ -121,6 +137,7 @@ impl TickAggr {
     }
 
     /// return latest data point and its index
+    /// 【zh】 返回最新的数据点及其下标；没有数据时为 `None`。
     pub fn latest_dp(&self) -> Option<(&TickAccumulation, usize)> {
         self.datapoints
             .last()
@@ -131,6 +148,9 @@ impl TickAggr {
         self.into()
     }
 
+    // 【zh】 按序写入成交：最后一根已满（达到 `interval`）就新开一根，否则并入。
+    // 【zh】 记录被改动的下标，循环结束后统一重算 POC，避免每笔都重算；
+    // 【zh】 最后刷新所有 POC 的未平仓状态。
     pub fn insert_trades(&mut self, buffer: &[Trade]) {
         let mut updated_indices = Vec::new();
 
@@ -164,6 +184,9 @@ impl TickAggr {
         self.update_poc_status();
     }
 
+    // 【zh】 计算每根 K 线 POC（控制点）是否被后续 K 线触及（naked POC）。
+    // 【zh】 找到首根覆盖该价格的后续 K 线则标记为已填补，
+    // 【zh】 其下标按渲染顺序反转（最新为 0）；否则为未填补。
     pub fn update_poc_status(&mut self) {
         let updates = self
             .datapoints
@@ -201,6 +224,8 @@ impl TickAggr {
         }
     }
 
+    // 【zh】 求区间内 K 线的最低价与最高价。下标以最新一根为 0 反向计数，
+    // 【zh】 `earliest`/`latest` 均按此约定；区间非法或无数据返回 `None`。
     pub fn min_max_price_in_range_prices(
         &self,
         earliest: usize,
@@ -243,6 +268,8 @@ impl TickAggr {
             .map(|(min_p, max_p)| (min_p.to_f32_lossy(), max_p.to_f32_lossy()))
     }
 
+    // 【zh】 与上一函数类似，但额外把足迹中的所有档位价格纳入比较，
+    // 【zh】 用于足迹图纵轴范围。下标同样以最新一根为 0。
     pub fn min_max_footprint_price_in_range(
         &self,
         earliest: usize,
@@ -288,6 +315,8 @@ impl TickAggr {
         }
     }
 
+    // 【zh】 求区间内（最新为 0 的下标）各 K 线在给定价格范围内的最大簇成交量，
+    // 【zh】 用于足迹图中柱宽/颜色的归一化。
     pub fn max_qty_idx_range(
         &self,
         cluster_kind: ClusterKind,
@@ -314,6 +343,7 @@ impl TickAggr {
 
 impl From<&TickAggr> for BTreeMap<u64, exchange::Volume> {
     /// Converts datapoints into a map of timestamps and volume data
+    /// 【zh】 转为“下标 → 成交量”的映射。tick 图没有时间轴，故以数据点序号作键。
     fn from(tick_aggr: &TickAggr) -> Self {
         tick_aggr
             .datapoints
