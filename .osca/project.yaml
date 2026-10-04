@@ -1,0 +1,57 @@
+# OSCA project configuration (hand-maintained). Generated from the copier template;
+# run `uvx copier update` to pick up template changes.
+schema: osca/v1
+project: flowsurface
+name: Flowsurface
+osca_version: ">=0.3,<0.4"
+
+upstream:
+  remote: upstream
+  repository: https://github.com/flowsurface-rs/flowsurface
+  branch: main
+  track: tags
+  tag_pattern: '^v\d+\.\d+\.\d+$'
+  mirror_branch: mirror/main
+
+study:
+  branch: study/zh-CN
+  language: zh-CN
+  strategy: inline-comments
+  marker: "【zh】"
+  # Build-generated tracked files (e.g. cbindgen output rendered from doc comments).
+  # They must stay byte-identical to upstream.
+  generated: []
+
+license: GPL-3.0
+
+scope:
+  # Which symbols count towards coverage (impl blocks are indexed but not counted).
+  symbols:
+    min_body_lines: 5
+    exclude_kinds: [impl]
+  include:
+    - "src/**"
+    - "data/src/**"
+    - "exchange/src/**"
+  exclude:
+    - "**/tests/**"
+    - "**/benches/**"
+
+terminology: [general, rust, gui, trading, distributed-systems]
+
+atlas:
+  repo: dajy5120/opensource-code-atlas
+  ref: main
+
+# `osca translate` (structured annotation patches, ADR 0005)
+ai:
+  backend: claude-code      # claude-code = Claude subscription via `claude -p`; api = ANTHROPIC_API_KEY
+  model: claude-sonnet-5-5
+  effort: medium            # low | medium | high | xhigh | max
+  max_symbols_per_request: 20
+  fallbacks: true           # server-side refusal fallback (not used for batches)
+
+build:
+  check: ""
+  # Doc builds catch annotation problems that `check` cannot (e.g. rustdoc link lints).
+  doc: ""

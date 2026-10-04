@@ -1,0 +1,27 @@
+# Changes here will be overwritten by Copier; NEVER EDIT MANUALLY
+_commit: c71469b
+_src_path: gh:dajy5120/opensource-code-atlas
+atlas_repo: dajy5120/opensource-code-atlas
+build_check: ''
+github_owner: dajy5120
+license: GPL-3.0
+osca_ref: main
+project_id: flowsurface
+project_name: Flowsurface
+scope_exclude:
+- '**/tests/**'
+- '**/benches/**'
+scope_include:
+- src/**
+- data/src/**
+- exchange/src/**
+tag_pattern: ^v\d+\.\d+\.\d+$
+terminology:
+- general
+- rust
+- gui
+- trading
+- distributed-systems
+track: tags
+upstream_branch: main
+upstream_url: https://github.com/flowsurface-rs/flowsurface
