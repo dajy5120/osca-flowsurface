@@ -2,30 +2,28 @@
   "schema": "osca-status/v2",
   "project": "flowsurface",
   "granularity": "symbol",
-  "generated_at": "2026-10-04T05:34:16+00:00",
+  "generated_at": "2026-10-04T05:34:56+00:00",
   "anchor": {
     "commit": "4616dcbda920fabfea84400c3ed72084854b0c05",
     "ref": "v0.9.0"
   },
   "files": {
     "in_scope": 131,
-    "translated": 2,
-    "stale": 1,
+    "translated": 3,
+    "stale": 0,
     "pending": 128
   },
   "symbols": {
     "in_scope": 2358,
     "reviewed": 0,
-    "translated": 43,
-    "stale": 2,
+    "translated": 45,
+    "stale": 0,
     "pending": 2313,
-    "stale_by_kind": {
-      "body": 2
-    },
+    "stale_by_kind": {},
     "orphaned": 0
   },
-  "zh_lines": 102,
+  "zh_lines": 108,
   "coverage": 0.0191,
-  "fresh": 0.0182,
+  "fresh": 0.0191,
   "reviewed": 0.0
 }
