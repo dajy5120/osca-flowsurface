@@ -1,0 +1,31 @@
+{
+  "schema": "osca-status/v2",
+  "project": "flowsurface",
+  "granularity": "symbol",
+  "generated_at": "2026-10-04T05:34:16+00:00",
+  "anchor": {
+    "commit": "4616dcbda920fabfea84400c3ed72084854b0c05",
+    "ref": "v0.9.0"
+  },
+  "files": {
+    "in_scope": 131,
+    "translated": 2,
+    "stale": 1,
+    "pending": 128
+  },
+  "symbols": {
+    "in_scope": 2358,
+    "reviewed": 0,
+    "translated": 43,
+    "stale": 2,
+    "pending": 2313,
+    "stale_by_kind": {
+      "body": 2
+    },
+    "orphaned": 0
+  },
+  "zh_lines": 102,
+  "coverage": 0.0191,
+  "fresh": 0.0182,
+  "reviewed": 0.0
+}
